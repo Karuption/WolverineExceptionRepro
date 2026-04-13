@@ -1,4 +1,3 @@
-using JasperFx;
 using JasperFx.Core;
 
 using Serilog;
@@ -7,8 +6,6 @@ using Wolverine;
 using Wolverine.ErrorHandling;
 using Wolverine.RabbitMQ;
 
-using ILogger = Serilog.ILogger;
-
 var builder = WebApplication.CreateBuilder(args);
 
 // Add service defaults & Aspire client integrations.
@@ -16,14 +13,23 @@ builder.Services.AddSerilog(o => o.WriteTo.Console());
 
 builder.UseWolverine(opts =>
 	{
+		const string commandqueue = "command_queue";
+		const string triggerqueue  = "trigger_queue";
 		opts.UseRabbitMq("amqp://admin:admin@localhost:5672")
 			.EnableEnhancedDeadLettering()
 			.DeclareExchange(
 				"test.exchange",
-				e => { e.BindTopic("test.exchange.command").ToQueue("test.command"); }
+				e =>
+				{
+					e.BindTopic("test.exchange.command").ToQueue(commandqueue);
+					e.BindTopic("test.exchange.event").ToQueue(triggerqueue);
+				}
 			)
 			.AutoProvision();
+		
+		opts.PublishMessagesToRabbitMqExchange<TriggerEvent>("test.exchange", _ => "test.exchange.event");
 		opts.PublishMessagesToRabbitMqExchange<TestCommand>("test.exchange", _ => "test.exchange.command");
+		opts.ListenToRabbitQueue(triggerqueue);
 
 		opts.OnAnyException()
 			.Requeue()
@@ -51,9 +57,9 @@ app.MapOpenApi();
 
 app.MapGet(
 	"/",
-	(IMessageBus bus, ILoggerFactory loggerFactory) =>
+	async (IMessageBus bus, ILoggerFactory loggerFactory) =>
 	{
-		bus.InvokeAsync<TestResponse>(new TriggerEvent());
+		await bus.PublishAsync(new TriggerEvent());
 		var logger = loggerFactory.CreateLogger<TriggerEventHandler>();
 		logger.LogInformation("Sent TriggerEvent");
 		TypedResults.Ok();
@@ -72,7 +78,7 @@ public class TriggerEventHandler
 {
 	public async Task Handle(TriggerEvent t, ILogger<TriggerEventHandler> logger, IMessageBus bus, CancellationToken ct)
 	{
-		logger.LogInformation("Sending TestCommand");
+		logger.LogInformation("Recieved TriggerEvent");
 		await bus.InvokeAsync<TestResponse>(new TestCommand());
 	}
 }
