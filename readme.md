@@ -10,7 +10,7 @@ sudo docker run -d --name some-rabbit \
 ```
 2. Run this project
 3. Hit the root endpoint with a browser, curl, or by the .http file at (by default) http://localhost:5153/
-4. Observe only one attempt by the worker
+4. Observe only one attempt by the worker (login to http://localhost:15672/ with user 'admin' and password 'admin')
   - Command is queued
   - Response times out
   - Command is still queued
